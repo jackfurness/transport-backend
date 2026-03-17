@@ -1,6 +1,7 @@
 const favourites = require('../config/favourites');
 const { getCache, setCache } = require('../utils/cache');
 const { DateTime } = require('luxon');
+const WALK_MINUTES_REQUIRED = 6;
 
 async function getDepartures(favouriteId) {
   const cached = getCache(favouriteId);
@@ -157,6 +158,10 @@ function mapPassToDeparture(pass) {
     return null;
   }
 
+  const minutesUntil = getMinutesUntil(expectedTime);
+  const minutesMargin = getMinutesMargin(minutesUntil, WALK_MINUTES_REQUIRED);
+  const canMakeIt = canMakeDeparture(minutesUntil, WALK_MINUTES_REQUIRED);
+
   return {
     line,
     mode: inferMode(pass),
@@ -164,7 +169,10 @@ function mapPassToDeparture(pass) {
     scheduledTime,
     expectedTime,
     delayMinutes: getDelayMinutes(scheduledTime, expectedTime),
-    minutesUntil: getMinutesUntil(expectedTime),
+    minutesUntil,
+    walkMinutesRequired: WALK_MINUTES_REQUIRED,
+    minutesMargin,
+    canMakeIt,
     timingPointCode: pass.TimingPointCode || null,
     timingPointName: pass.TimingPointName || null,
     operator: pass.OperatorCode || null,
@@ -189,6 +197,22 @@ function getMinutesUntil(expectedTime) {
   const diffMinutes = expected.diff(now, 'minutes').minutes;
 
   return Math.max(0, Math.round(diffMinutes));
+}
+
+function getMinutesMargin(minutesUntil, walkMinutesRequired) {
+  if (minutesUntil === null || minutesUntil === undefined) {
+    return null;
+  }
+
+  return minutesUntil - walkMinutesRequired;
+}
+
+function canMakeDeparture(minutesUntil, walkMinutesRequired) {
+  if (minutesUntil === null || minutesUntil === undefined) {
+    return false;
+  }
+
+  return minutesUntil >= walkMinutesRequired;
 }
 
 function inferMode(pass) {
