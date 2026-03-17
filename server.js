@@ -1,8 +1,12 @@
 const express = require('express');
+const cors = require('cors');
 const getDepartures = require('./services/getDepartures');
+const favourites = require('./config/favourites');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(cors());
 
 app.get('/', (req, res) => {
   res.json({ message: 'Transport backend is running' });
@@ -11,12 +15,7 @@ app.get('/', (req, res) => {
 app.get('/api/departures', (req, res) => {
   res.json({
     message: 'Choose a favourite endpoint',
-    availableFavourites: [
-      'barkpad-all',
-      'barkpad-station-noord',
-      'barkpad-34-noorderpark',
-      'barkpad-36-sloterdijk'
-    ]
+    availableFavourites: Object.keys(favourites)
   });
 });
 
