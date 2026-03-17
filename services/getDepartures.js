@@ -1,5 +1,6 @@
 const favourites = require('../config/favourites');
 const { getCache, setCache } = require('../utils/cache');
+const { DateTime } = require('luxon');
 
 async function getDepartures(favouriteId) {
   const cached = getCache(favouriteId);
@@ -52,9 +53,10 @@ async function getDepartures(favouriteId) {
   return result;
 }
 
+
 function extractDepartures(rawData, filters) {
   const allDepartures = [];
-  const now = Date.now();
+  const now = DateTime.now().setZone('Europe/Amsterdam');
 
   for (const stopAreaKey of Object.keys(rawData)) {
     const stopArea = rawData[stopAreaKey];
@@ -111,14 +113,16 @@ function extractDepartures(rawData, filters) {
           continue;
         }
 
-        const expectedMs = new Date(mapped.expectedTime).getTime();
+        const expected = DateTime.fromISO(mapped.expectedTime, {
+          zone: 'Europe/Amsterdam'
+        });
 
-        if (Number.isNaN(expectedMs)) {
+        if (!expected.isValid) {
           continue;
         }
 
         // Drop departures already gone more than 1 minute ago
-        if (expectedMs < now - 60000) {
+        if (expected.toMillis() < now.toMillis() - 60000) {
           continue;
         }
 
@@ -128,7 +132,15 @@ function extractDepartures(rawData, filters) {
   }
 
   allDepartures.sort((a, b) => {
-    return new Date(a.expectedTime).getTime() - new Date(b.expectedTime).getTime();
+    const aTime = DateTime.fromISO(a.expectedTime, {
+      zone: 'Europe/Amsterdam'
+    }).toMillis();
+
+    const bTime = DateTime.fromISO(b.expectedTime, {
+      zone: 'Europe/Amsterdam'
+    }).toMillis();
+
+    return aTime - bTime;
   });
 
   return dedupeDepartures(allDepartures).slice(0, 5);
@@ -161,13 +173,22 @@ function mapPassToDeparture(pass) {
 }
 
 function getMinutesUntil(expectedTime) {
-  const expected = new Date(expectedTime).getTime();
-
-  if (Number.isNaN(expected)) {
+  if (!expectedTime) {
     return null;
   }
 
-  return Math.max(0, Math.round((expected - Date.now()) / 60000));
+  const expected = DateTime.fromISO(expectedTime, {
+    zone: 'Europe/Amsterdam'
+  });
+
+  if (!expected.isValid) {
+    return null;
+  }
+
+  const now = DateTime.now().setZone('Europe/Amsterdam');
+  const diffMinutes = expected.diff(now, 'minutes').minutes;
+
+  return Math.max(0, Math.round(diffMinutes));
 }
 
 function inferMode(pass) {
@@ -186,14 +207,19 @@ function getDelayMinutes(scheduledTime, expectedTime) {
     return 0;
   }
 
-  const scheduled = new Date(scheduledTime).getTime();
-  const expected = new Date(expectedTime).getTime();
+  const scheduled = DateTime.fromISO(scheduledTime, {
+    zone: 'Europe/Amsterdam'
+  });
 
-  if (Number.isNaN(scheduled) || Number.isNaN(expected)) {
+  const expected = DateTime.fromISO(expectedTime, {
+    zone: 'Europe/Amsterdam'
+  });
+
+  if (!scheduled.isValid || !expected.isValid) {
     return 0;
   }
 
-  return Math.round((expected - scheduled) / 60000);
+  return Math.round(expected.diff(scheduled, 'minutes').minutes);
 }
 
 function dedupeDepartures(departures) {
