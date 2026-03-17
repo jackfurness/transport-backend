@@ -5,9 +5,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-  res.json({
-    message: 'Transport backend is running'
-  });
+  res.json({ message: 'Transport backend is running' });
 });
 
 app.get('/api/departures/:favouriteId', async (req, res) => {
@@ -16,17 +14,13 @@ app.get('/api/departures/:favouriteId', async (req, res) => {
     const result = await getDepartures(favouriteId);
 
     if (!result) {
-      return res.status(404).json({
-        error: 'Favourite not found'
-      });
+      return res.status(404).json({ error: 'Favourite not found' });
     }
 
     res.json(result);
   } catch (error) {
     console.error(error);
-    res.status(500).json({
-      error: 'Internal server error'
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

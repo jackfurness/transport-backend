@@ -1,13 +1,27 @@
 const favourites = require('../config/favourites');
+const { getCache, setCache } = require('../utils/cache');
 
 async function getDepartures(favouriteId) {
+  const cached = getCache(favouriteId);
+  if (cached) {
+    return cached;
+  }
+
   const favourite = favourites[favouriteId];
 
   if (!favourite) {
     return null;
   }
 
-  const { sourceType, sourceCode, line, mode, stopName } = favourite;
+  const {
+    sourceType,
+    sourceCode,
+    line,
+    mode,
+    stopName,
+    timingPointCode,
+    destinationIncludes
+  } = favourite;
 
   const url = `http://v0.ovapi.nl/${sourceType}/${sourceCode}/departures`;
 
@@ -19,28 +33,38 @@ async function getDepartures(favouriteId) {
 
   const rawData = await response.json();
 
-  const departures = extractDepartures(rawData, { line, mode });
+  const departures = extractDepartures(rawData, {
+    line,
+    mode,
+    timingPointCode,
+    destinationIncludes
+  });
 
-  return {
+  const result = {
     favouriteId,
     stopName,
     updatedAt: new Date().toISOString(),
     departures
   };
+
+  setCache(favouriteId, result, 30000);
+
+  return result;
 }
 
 function extractDepartures(rawData, filters) {
   const allDepartures = [];
+  const now = Date.now();
 
-  for (const outerKey of Object.keys(rawData)) {
-    const outerValue = rawData[outerKey];
+  for (const stopAreaKey of Object.keys(rawData)) {
+    const stopArea = rawData[stopAreaKey];
 
-    if (!outerValue || typeof outerValue !== 'object') {
+    if (!stopArea || typeof stopArea !== 'object') {
       continue;
     }
 
-    for (const innerKey of Object.keys(outerValue)) {
-      const stopBlock = outerValue[innerKey];
+    for (const timingPointKey of Object.keys(stopArea)) {
+      const stopBlock = stopArea[timingPointKey];
 
       if (!stopBlock || typeof stopBlock !== 'object') {
         continue;
@@ -73,6 +97,31 @@ function extractDepartures(rawData, filters) {
           continue;
         }
 
+        if (
+          filters.timingPointCode &&
+          mapped.timingPointCode !== filters.timingPointCode
+        ) {
+          continue;
+        }
+
+        if (
+          filters.destinationIncludes &&
+          !mapped.destination.toLowerCase().includes(filters.destinationIncludes.toLowerCase())
+        ) {
+          continue;
+        }
+
+        const expectedMs = new Date(mapped.expectedTime).getTime();
+
+        if (Number.isNaN(expectedMs)) {
+          continue;
+        }
+
+        // Drop departures already gone more than 1 minute ago
+        if (expectedMs < now - 60000) {
+          continue;
+        }
+
         allDepartures.push(mapped);
       }
     }
@@ -82,31 +131,17 @@ function extractDepartures(rawData, filters) {
     return new Date(a.expectedTime).getTime() - new Date(b.expectedTime).getTime();
   });
 
-  return allDepartures.slice(0, 5);
+  return dedupeDepartures(allDepartures).slice(0, 5);
 }
 
 function mapPassToDeparture(pass) {
   const line = pass.LinePublicNumber || null;
+  const destination = pass.DestinationName50 || 'Unknown destination';
 
-  const destination =
-    pass.DestinationName50 ||
-    pass.DestinationName16 ||
-    pass.LineDestination ||
-    'Unknown destination';
+  const scheduledTime = pass.TargetDepartureTime || null;
+  const expectedTime = pass.ExpectedDepartureTime || pass.TargetDepartureTime || null;
 
-  const expectedTime =
-    pass.ExpectedDepartureTime ||
-    pass.TargetDepartureTime ||
-    pass.PassingTime ||
-    null;
-
-  const scheduledTime =
-    pass.TargetDepartureTime ||
-    pass.ExpectedDepartureTime ||
-    pass.PassingTime ||
-    null;
-
-  if (!expectedTime && !scheduledTime) {
+  if (!expectedTime) {
     return null;
   }
 
@@ -115,17 +150,31 @@ function mapPassToDeparture(pass) {
     mode: inferMode(pass),
     destination,
     scheduledTime,
-    expectedTime: expectedTime || scheduledTime,
-    delayMinutes: getDelayMinutes(scheduledTime, expectedTime || scheduledTime)
+    expectedTime,
+    delayMinutes: getDelayMinutes(scheduledTime, expectedTime),
+    minutesUntil: getMinutesUntil(expectedTime),
+    timingPointCode: pass.TimingPointCode || null,
+    timingPointName: pass.TimingPointName || null,
+    operator: pass.OperatorCode || null,
+    tripStatus: pass.TripStopStatus || null
   };
+}
+
+function getMinutesUntil(expectedTime) {
+  const expected = new Date(expectedTime).getTime();
+
+  if (Number.isNaN(expected)) {
+    return null;
+  }
+
+  return Math.max(0, Math.round((expected - Date.now()) / 60000));
 }
 
 function inferMode(pass) {
   const transportType = `${pass.TransportType || ''}`.toLowerCase();
-  const lineName = `${pass.LineName || ''}`.toLowerCase();
 
-  if (transportType.includes('tram') || lineName.includes('tram')) return 'tram';
-  if (transportType.includes('metro') || lineName.includes('metro')) return 'metro';
+  if (transportType.includes('tram')) return 'tram';
+  if (transportType.includes('metro')) return 'metro';
   if (transportType.includes('veer') || transportType.includes('ferry')) return 'ferry';
   if (transportType.includes('bus')) return 'bus';
 
@@ -145,6 +194,24 @@ function getDelayMinutes(scheduledTime, expectedTime) {
   }
 
   return Math.round((expected - scheduled) / 60000);
+}
+
+function dedupeDepartures(departures) {
+  const seen = new Set();
+  const result = [];
+
+  for (const dep of departures) {
+    const key = `${dep.timingPointCode}-${dep.line}-${dep.destination}-${dep.expectedTime}`;
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(dep);
+  }
+
+  return result;
 }
 
 module.exports = getDepartures;
