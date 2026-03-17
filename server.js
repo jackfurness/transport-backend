@@ -8,6 +8,18 @@ app.get('/', (req, res) => {
   res.json({ message: 'Transport backend is running' });
 });
 
+app.get('/api/departures', (req, res) => {
+  res.json({
+    message: 'Choose a favourite endpoint',
+    availableFavourites: [
+      'barkpad-all',
+      'barkpad-station-noord',
+      'barkpad-34-noorderpark',
+      'barkpad-36-sloterdijk'
+    ]
+  });
+});
+
 app.get('/api/departures/:favouriteId', async (req, res) => {
   try {
     const { favouriteId } = req.params;
