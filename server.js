@@ -1,23 +1,33 @@
 const express = require('express');
-const mockDepartures = require('./data/mockDepartures');
+const getDepartures = require('./services/getDepartures');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Root route, useful for checking if the server is alive
 app.get('/', (req, res) => {
   res.json({
     message: 'Transport backend is running'
   });
 });
 
-// Main departures endpoint with mock data
-app.get('/api/departures/centraal-26', (req, res) => {
-  res.json({
-    stopName: mockDepartures.stopName,
-    updatedAt: new Date().toISOString(),
-    departures: mockDepartures.departures
-  });
+app.get('/api/departures/:favouriteId', async (req, res) => {
+  try {
+    const { favouriteId } = req.params;
+    const result = await getDepartures(favouriteId);
+
+    if (!result) {
+      return res.status(404).json({
+        error: 'Favourite not found'
+      });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      error: 'Internal server error'
+    });
+  }
 });
 
 app.listen(PORT, () => {
