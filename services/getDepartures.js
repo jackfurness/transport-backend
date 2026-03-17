@@ -43,7 +43,7 @@ async function getDepartures(favouriteId) {
   const result = {
     favouriteId,
     stopName,
-    updatedAt: new Date().toISOString(),
+    updatedAt: getLocalIsoTime(),
     departures
   };
 
@@ -212,6 +212,44 @@ function dedupeDepartures(departures) {
   }
 
   return result;
+}
+
+function getLocalIsoTime() {
+  const now = new Date();
+
+  const parts = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Amsterdam',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(now);
+
+  const map = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') {
+      map[part.type] = part.value;
+    }
+  }
+
+  const localString =
+    `${map.year}-${map.month}-${map.day}T${map.hour}:${map.minute}:${map.second}`;
+
+  const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const amsterdamDate = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Europe/Amsterdam' })
+  );
+
+  const offsetMinutes = Math.round((amsterdamDate - utcDate) / 60000);
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const absMinutes = Math.abs(offsetMinutes);
+  const offsetHours = String(Math.floor(absMinutes / 60)).padStart(2, '0');
+  const offsetMins = String(absMinutes % 60).padStart(2, '0');
+
+  return `${localString}${sign}${offsetHours}:${offsetMins}`;
 }
 
 module.exports = getDepartures;
